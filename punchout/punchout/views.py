@@ -2,46 +2,16 @@ from django.shortcuts import render
 from django.http import HttpResponse, HttpResponseBadRequest
 import logging
 from xml.dom import minidom
-import random
-import datetime
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from punchout.models import pouser
+from punchout.Usuario import UsuarioPO, getLoginParam
+from punchout.helpers import getZonaHorariaFormateada
 
 # Create your views here.
-
-class UsuarioPO:
-    id=""
-    nombre = ""
-    buyercookie = ""
-    apellido = ""
-    nombre_unico = ""
-    email = ""
-    user = ""
-    businessunit = ""
-    urlToRedirect = ""
-    sessionExpiresAt = timezone.now() + datetime.timedelta(days=1)
-    torvigoLoginUrl = "http://127.0.0.1:8000/punchout/login?id="
-    secretID = ""
-    sessionOpen = False
-    concurrentSessions = 0
-    createdAt = timezone.now()
-    updatedAt = timezone.now()
-    
-    def getUrlToLogin(self):
-        return self.torvigoLoginUrl + self.secretID
-    
-def getLoginParam():
-    listaCaracteres = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'ñ', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'Ñ', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
-    
-    resultado = ""
-    
-    for item in range(8):
-        numeroAletario = random.randint(0, len(listaCaracteres) - 1)
-        resultado += listaCaracteres[numeroAletario]
-    
-    return resultado
 
 @csrf_exempt
 def index(request):
@@ -49,10 +19,11 @@ def index(request):
     logging.basicConfig(level=logging.NOTSET) # Here
     
     doc = minidom.parseString(request.body.decode('utf-8'))
-    laCookie = doc.getElementsByTagName("BrowserFormPost").item(0).getElementsByTagName("URL").item(0).firstChild.nodeValue
+    zonaHoraria = getZonaHorariaFormateada(datetime.now(ZoneInfo("Europe/Madrid")).strftime("%z"))
+    horaUTC = datetime.now().strftime("%Y-%m-%dT%H:%M:%S") + zonaHoraria
     logging.info("--------------------------------------------")
     logging.info("FECHA")
-    logging.info(timezone.now() + datetime.timedelta(days=1))
+    logging.info(horaUTC)
     logging.info("--------------------------------------------")
     
     usuario = UsuarioPO()
@@ -77,6 +48,7 @@ def index(request):
         usuario.urlToRedirect = p.urlToRedirect
         usuario.secretID = p.secretID
         usuario.sessionExpiresAt = p.sessionExpiredAt
+        usuario.payloadID = doc.getElementsByTagName("cXML").item(0).getAttribute("payloadID")
         
         if usuario.sessionExpiresAt < timezone.now():
           usuario.sessionExpiresAt = UsuarioPO().sessionExpiresAt
@@ -97,6 +69,7 @@ def index(request):
         usuario.secretID = getLoginParam()
         usuario.sessionExpiresAt = usuario.sessionExpiresAt
         usuario.createdAt = usuario.createdAt
+        usuario.payloadID = doc.getElementsByTagName("cXML").item(0).getAttribute("payloadID")
         usuario.urlToRedirect = doc.getElementsByTagName("BrowserFormPost").item(0).getElementsByTagName("URL").item(0).firstChild.nodeValue
         for i in range(doc.getElementsByTagName("Extrinsic").length):
             if doc.getElementsByTagName("Extrinsic")[i].getAttribute("name") == "FirstName":
@@ -120,7 +93,7 @@ def index(request):
     
     xmlRespuesta = """<?xml version="1.0" encoding="UTF-8"?>
                         <!DOCTYPE cXML SYSTEM "http://xml.cxml.org/schemas/cXML/1.1.010/cXML.dtd">
-                        <cXML version="1.1.007" xml:lang="en-US" payloadID="200303450803006749@b2b.euro.com" timestamp="2020-06-02T14:36:53-05:00">
+                        <cXML version="1.1.007" xml:lang="en-US" payloadID="%s" timestamp="%s">
                             <Response>
                                 <Status code="200" text="OK" />
                                 <PunchOutSetupResponse>
@@ -130,7 +103,7 @@ def index(request):
                                 </PunchOutSetupResponse>
                             </Response>
                         </cXML>
-                    """ % (usuario.getUrlToLogin())
+                    """ % (usuario.payloadID, horaUTC, usuario.getUrlToLogin())
     
     
     #respuesta = HttpResponse(doc.toxml('utf-8'), content_type="application/xml; charset=utf-8")
